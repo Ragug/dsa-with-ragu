@@ -449,10 +449,9 @@ export default function App() {
           onNavigate={navigateToPage}
         />
 
+        {/* Playground renders its own <main>, so no wrapper here. */}
         <Suspense fallback={<PageLoading label="Loading playground..." />}>
-          <main className="simple-page-content">
-            <Playground />
-          </main>
+          <Playground />
         </Suspense>
 
         <SiteFooter />

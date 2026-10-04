@@ -1,5 +1,4 @@
-
-import { useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import {
   Play,
   RotateCcw,
@@ -13,6 +12,8 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { runPythonScript } from "../runtime/pythonRuntime";
 import { indentUnit } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
+import { Group, Panel, Separator } from "react-resizable-panels";
+
 const DEFAULT_CODE = `"""
 DSA With Ragu — Python Playground
 
@@ -28,11 +29,32 @@ if __name__ == "__main__":
     solve()
 `;
 
+// Stack the panels vertically on narrow screens.
+function useIsNarrow(maxWidth = 900): boolean {
+  const query = `(max-width: ${maxWidth}px)`;
+  const [narrow, setNarrow] = useState(
+    () => window.matchMedia(query).matches,
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setNarrow(media.matches);
+
+    update();
+    media.addEventListener("change", update);
+
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+
+  return narrow;
+}
+
 export default function Playground() {
   const [code, setCode] = useState(DEFAULT_CODE);
   const [output, setOutput] = useState("");
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
+  const vertical = useIsNarrow();
 
   async function runCode() {
     if (running) return;
@@ -64,18 +86,26 @@ export default function Playground() {
     setError("");
   }
 
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      void runCode();
+    }
+  }
+
   return (
-    <main className="main-content playground-page">
-      <header className="playground-header">
-        <div>
+    <main className="playground-page" onKeyDown={handleKeyDown}>
+      <header className="playground-toolbar">
+        <div className="playground-title">
           <span className="eyebrow">PYTHON ENVIRONMENT</span>
           <h1>Python Playground</h1>
-          <p className="page-subtitle">
-            Experiment with Python without creating a problem submission.
-          </p>
         </div>
 
         <div className="playground-actions">
+          <span className="muted-text playground-hint">
+            Ctrl + Enter to run
+          </span>
+
           <button
             type="button"
             className="secondary-button"
@@ -102,76 +132,103 @@ export default function Playground() {
         </div>
       </header>
 
-      <section className="playground-editor panel">
-        <div className="panel-heading">
-          <h2>main.py</h2>
-          <span className="muted-text">
-            Python 3 · Browser runtime
-          </span>
-        </div>
-
-        <div className="playground-code">
-          <CodeMirror
-            value={code}
-            height="400px"
-            theme={oneDark}
-            extensions={[
-              python(),
-              indentUnit.of("    "), // 4 spaces per indentation level
-              EditorState.tabSize.of(4), // Tab width = 4
-            ]}
-            onChange={setCode}
-            editable={!running}
-            basicSetup={{
-              lineNumbers: true,
-              foldGutter: true,
-              autocompletion: true,
-              highlightActiveLine: true,
-              highlightActiveLineGutter: true,
-            }}
-          />
-        </div>
-      </section>
-
-      <section className="playground-output panel">
-        <div className="panel-heading">
-          <h2>Output</h2>
-
-          <button
-            type="button"
-            className="icon-button"
-            onClick={clearOutput}
-            disabled={!output && !error}
-            aria-label="Clear output"
-          >
-            <Trash2 size={14} />
-            Clear
-          </button>
-        </div>
-
-        <pre
-          className={`playground-console${error ? " console-error" : ""}`}
-          aria-live="polite"
+      <div className="playground-workspace">
+        <Group
+          orientation={vertical ? "vertical" : "horizontal"}
+          className="playground-group"
         >
-          {error || output || "Your program output will appear here."}
-        </pre>
-      </section>
-
-      <p className="playground-note">
-        <Info size={17} />
-        <span>
-          <strong>Note:</strong> Code runs in your browser using Pyodide.
-          Check the{" "}
-          <a
-            href="https://pyodide.org/en/stable/usage/quickstart.html"
-            target="_blank"
-            rel="noopener noreferrer"
+          <Panel
+            defaultSize="60%"
+            minSize="25%"
+            className="playground-panel"
+            style={{ overflow: "hidden" }}
           >
-            supported features and limitations
-          </a>{" "}
-          of the Pyodide runtime.
-        </span>
-      </p>
+            <section className="playground-editor panel">
+              <div className="panel-heading">
+                <h2>main.py</h2>
+                <span className="muted-text">
+                  Python 3 · Browser runtime
+                </span>
+              </div>
+
+              <div className="playground-code">
+                <CodeMirror
+                  value={code}
+                  height="100%"
+                  theme={oneDark}
+                  extensions={[
+                    python(),
+                    indentUnit.of("    "), // 4 spaces per indentation level
+                    EditorState.tabSize.of(4), // Tab width = 4
+                  ]}
+                  onChange={setCode}
+                  editable={!running}
+                  basicSetup={{
+                    lineNumbers: true,
+                    foldGutter: true,
+                    autocompletion: true,
+                    highlightActiveLine: true,
+                    highlightActiveLineGutter: true,
+                  }}
+                />
+              </div>
+            </section>
+          </Panel>
+
+          <Separator
+            className={`playground-separator ${
+              vertical ? "is-vertical" : "is-horizontal"
+            }`}
+          />
+
+          <Panel
+            defaultSize="40%"
+            minSize="20%"
+            className="playground-panel"
+            style={{ overflow: "hidden" }}
+          >
+            <section className="playground-output panel">
+              <div className="panel-heading">
+                <h2>Output</h2>
+
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={clearOutput}
+                  disabled={!output && !error}
+                  aria-label="Clear output"
+                >
+                  <Trash2 size={14} />
+                  Clear
+                </button>
+              </div>
+
+              <pre
+                className={`playground-console${
+                  error ? " console-error" : ""
+                }`}
+                aria-live="polite"
+              >
+                {error || output || "Your program output will appear here."}
+              </pre>
+
+              <p className="playground-note">
+                <Info size={15} />
+                <span>
+                  Runs in your browser using Pyodide.{" "}
+                  <a
+                    href="https://pyodide.org/en/stable/usage/quickstart.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Supported features and limitations
+                  </a>
+                </span>
+              </p>
+            </section>
+          </Panel>
+        </Group>
+      </div>
     </main>
   );
 }

@@ -95,15 +95,17 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       let stdout = "";
       let stderr = "";
 
+      // Pyodide calls `batched` once per line with the trailing
+      // newline already removed, so add it back.
       pyodide.setStdout({
         batched: (text) => {
-          stdout += text;
+          stdout += text + "\n";
         },
       });
 
       pyodide.setStderr({
         batched: (text) => {
-          stderr += text;
+          stderr += text + "\n";
         },
       });
 
@@ -120,9 +122,11 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         });
       } catch (error: unknown) {
         // Preserve output printed before an exception.
-        stderr += error instanceof Error
+        const message = error instanceof Error
           ? error.message
           : String(error);
+
+        stderr += (stderr && !stderr.endsWith("\n") ? "\n" : "") + message;
 
         send({
           id,
