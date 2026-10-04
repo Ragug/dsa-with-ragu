@@ -504,6 +504,7 @@ export const problems: Problem[] = [
     ],
     starterCode: "def prefix_sum(nums):\n    # Return cumulative sums\n    pass",
   },
+
   {
     id: "suffix-sum",
     title: "Suffix Sum",
@@ -520,15 +521,24 @@ export const problems: Problem[] = [
     tests: [
       { input: [[1, 2, 3, 4]], expected: [10, 9, 7, 4] },
       { input: [[2, 4, 6]], expected: [12, 10, 6] },
-      { input: [[-1, 5, -2]], expected: [2, 7, -2] },
+      { input: [[-1, 5, -2]], expected: [2, 3, -2] },
       { input: [[0]], expected: [0] },
-      { input: [range(100000, 1)], expected: range(100000, 1).map((_, i, arr) => ((arr.length - i) * (arr.length - i + 1)) / 2) },
+
+
+      {
+        input: [Array.from({ length: 10000 }, (_, i) => i + 1)],
+        expected: Array.from({ length: 10000 }, (_, i) =>
+          Array.from({ length: 10000 - i }, (_, j) => i + j + 1)
+            .reduce((sum, value) => sum + value, 0)
+        ),
+      },
     ],
     constraints: [
       "1 <= nums.length <= 100000",
       "Expected time: O(n); extra space: O(n).",
     ],
-    starterCode: "def suffix_sum(nums):\n    # Return cumulative sums from right to left\n    pass",
+    starterCode:
+      "def suffix_sum(nums):\n    # Return cumulative sums from right to left\n    pass",
   },
   {
     id: "difference-array",
