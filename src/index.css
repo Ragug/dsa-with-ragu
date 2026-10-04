@@ -1767,8 +1767,58 @@ a {
   overflow-wrap: anywhere;
 }
 
-.playground-console.console-error {
+.console-stderr {
   color: var(--danger);
+}
+
+.console-info {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.console-placeholder {
+  color: var(--text-muted);
+}
+
+.stop-button {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-color));
+}
+
+.stop-button:hover {
+  background: var(--danger-bg);
+}
+
+.playground-output-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.playground-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.playground-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.playground-stat svg {
+  color: var(--accent);
 }
 
 .playground-note {

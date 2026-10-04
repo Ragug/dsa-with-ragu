@@ -38,13 +38,23 @@ export type PythonRunResponse = {
 };
 
 export type PythonScriptResult = {
-  stdout: string;
-  stderr: string;
+  executionTimeMs: number | null;
+  memoryBytes: number | null;
+  /** True when memoryBytes is WebAssembly heap growth, not exact. */
+  memoryApproximate: boolean;
+  /** The runtime was restarted after this run to release memory. */
+  recycle: boolean;
+};
+
+/** A piece of output printed by a running playground script. */
+export type PythonStreamChunk = {
+  stream: "stdout" | "stderr";
+  text: string;
 };
 
 type WorkerResponse = {
   id: number;
-  type: "ready" | "result" | "error";
+  type: "ready" | "result" | "error" | "stream";
   payload?: unknown;
   error?: string;
 };
@@ -54,7 +64,8 @@ type WorkerRequestType = "init" | "run" | "script";
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
-  timeout: ReturnType<typeof setTimeout>;
+  timeout: ReturnType<typeof setTimeout> | null;
+  onStream?: (chunk: PythonStreamChunk) => void;
 };
 
 export class PythonTimeoutError extends Error {
@@ -64,170 +75,230 @@ export class PythonTimeoutError extends Error {
   }
 }
 
+/** Thrown when the person stops a running playground script. */
+export class PythonStoppedError extends Error {
+  constructor(message = "Execution stopped.") {
+    super(message);
+    this.name = "PythonStoppedError";
+  }
+}
+
 export const TEST_TIME_LIMIT_MS = 5_000;
 
 const INIT_TIMEOUT_MS = 60_000;
 
-let worker: Worker | null = null;
-let nextRequestId = 1;
-let readyPromise: Promise<void> | null = null;
+/**
+ * One Pyodide worker with its own request queue.
+ *
+ * The problem test runner and the Playground each use their own
+ * client, so they never share a Python interpreter, and stopping
+ * or restarting one can never affect the other.
+ */
+class PythonWorkerClient {
+  private worker: Worker | null = null;
+  private nextRequestId = 1;
+  private readyPromise: Promise<void> | null = null;
+  private readonly pending = new Map<number, PendingRequest>();
 
-const pending = new Map<number, PendingRequest>();
-
-function rejectPendingRequests(message: string): void {
-  for (const [id, request] of pending) {
-    clearTimeout(request.timeout);
-    pending.delete(id);
-    request.reject(new Error(message));
+  private clearTimer(request: PendingRequest): void {
+    if (request.timeout) clearTimeout(request.timeout);
   }
-}
 
-function handleWorkerFailure(
-  instance: Worker,
-  message: string,
-): void {
-  // Ignore events from a worker that has already been replaced.
-  if (worker !== instance) return;
-
-  rejectPendingRequests(message);
-
-  instance.terminate();
-
-  worker = null;
-  readyPromise = null;
-}
-
-function createWorker(): Worker {
-  const instance = new Worker(
-    new URL("../workers/python.worker.ts", import.meta.url),
-    { type: "module" },
-  );
-
-  instance.onmessage = (event: MessageEvent<WorkerResponse>) => {
-    // Ignore messages from an obsolete worker.
-    if (worker !== instance) return;
-
-    const message = event.data;
-    const request = pending.get(message.id);
-
-    if (!request) return;
-
-    clearTimeout(request.timeout);
-    pending.delete(message.id);
-
-    if (message.type === "error") {
-      request.reject(
-        new Error(message.error ?? "Python worker failed."),
-      );
-      return;
+  private rejectPending(error: Error): void {
+    for (const [id, request] of this.pending) {
+      this.clearTimer(request);
+      this.pending.delete(id);
+      request.reject(error);
     }
-
-    request.resolve(message.payload);
-  };
-
-  instance.onerror = () => {
-    handleWorkerFailure(
-      instance,
-      "Python runtime stopped unexpectedly.",
-    );
-  };
-
-  instance.onmessageerror = () => {
-    handleWorkerFailure(
-      instance,
-      "Could not read the response from the Python worker.",
-    );
-  };
-
-  return instance;
-}
-
-function getWorker(): Worker {
-  if (!worker) {
-    worker = createWorker();
   }
 
-  return worker;
-}
+  private handleFailure(instance: Worker, message: string): void {
+    // Ignore events from a worker that has already been replaced.
+    if (this.worker !== instance) return;
 
-function requestWorker<T>(
-  type: WorkerRequestType,
-  payload: unknown,
-  timeoutMs: number,
-): Promise<T> {
-  const currentWorker = getWorker();
-  const id = nextRequestId++;
+    this.rejectPending(new Error(message));
 
-  return new Promise<T>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      // The request may have already completed or been rejected.
-      const request = pending.get(id);
+    instance.terminate();
+
+    this.worker = null;
+    this.readyPromise = null;
+  }
+
+  private createWorker(): Worker {
+    const instance = new Worker(
+      new URL("../workers/python.worker.ts", import.meta.url),
+      { type: "module" },
+    );
+
+    instance.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      // Ignore messages from an obsolete worker.
+      if (this.worker !== instance) return;
+
+      const message = event.data;
+      const request = this.pending.get(message.id);
 
       if (!request) return;
 
-      pending.delete(id);
-
-      request.reject(
-        new PythonTimeoutError(
-          type === "init"
-            ? "Python runtime took too long to start."
-            : "Time limit exceeded",
-        ),
-      );
-
-      // Terminate the worker to interrupt an infinite loop.
-      // This also rejects any other requests using this worker.
-      if (worker === currentWorker) {
-        restartPythonRuntime();
+      // Streamed output does not finish the request.
+      if (message.type === "stream") {
+        request.onStream?.(message.payload as PythonStreamChunk);
+        return;
       }
-    }, timeoutMs);
 
-    pending.set(id, {
-      resolve: resolve as (value: unknown) => void,
-      reject,
-      timeout,
-    });
+      this.clearTimer(request);
+      this.pending.delete(message.id);
 
-    try {
-      currentWorker.postMessage({
-        id,
-        type,
-        payload,
-      });
-    } catch (error) {
-      clearTimeout(timeout);
-      pending.delete(id);
+      if (message.type === "error") {
+        request.reject(
+          new Error(message.error ?? "Python worker failed."),
+        );
+        return;
+      }
 
-      reject(
-        error instanceof Error
-          ? error
-          : new Error(String(error)),
+      request.resolve(message.payload);
+    };
+
+    instance.onerror = () => {
+      this.handleFailure(
+        instance,
+        "Python runtime stopped unexpectedly.",
       );
-    }
-  });
-}
+    };
 
-export function warmPythonRuntime(): Promise<void> {
-  if (readyPromise) {
-    return readyPromise;
+    instance.onmessageerror = () => {
+      this.handleFailure(
+        instance,
+        "Could not read the response from the Python worker.",
+      );
+    };
+
+    return instance;
   }
 
-  readyPromise = requestWorker<void>(
-    "init",
-    undefined,
-    INIT_TIMEOUT_MS,
-  ).catch((error: unknown) => {
-    readyPromise = null;
-    throw error;
-  });
+  private getWorker(): Worker {
+    if (!this.worker) {
+      this.worker = this.createWorker();
+    }
 
-  return readyPromise;
+    return this.worker;
+  }
+
+  /**
+   * Send a request to the worker.
+   * Pass `timeoutMs = null` for no time limit.
+   */
+  request<T>(
+    type: WorkerRequestType,
+    payload: unknown,
+    timeoutMs: number | null,
+    onStream?: (chunk: PythonStreamChunk) => void,
+  ): Promise<T> {
+    const currentWorker = this.getWorker();
+    const id = this.nextRequestId++;
+
+    return new Promise<T>((resolve, reject) => {
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+
+      if (timeoutMs !== null) {
+        timeout = setTimeout(() => {
+          // The request may have already completed or been rejected.
+          const request = this.pending.get(id);
+
+          if (!request) return;
+
+          this.pending.delete(id);
+
+          request.reject(
+            new PythonTimeoutError(
+              type === "init"
+                ? "Python runtime took too long to start."
+                : "Time limit exceeded",
+            ),
+          );
+
+          // Terminate the worker to interrupt an infinite loop.
+          // This also rejects any other requests using this worker.
+          if (this.worker === currentWorker) {
+            this.restart();
+          }
+        }, timeoutMs);
+      }
+
+      this.pending.set(id, {
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        timeout,
+        onStream,
+      });
+
+      try {
+        currentWorker.postMessage({ id, type, payload });
+      } catch (error) {
+        if (timeout) clearTimeout(timeout);
+        this.pending.delete(id);
+
+        reject(
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+    });
+  }
+
+  warm(): Promise<void> {
+    if (this.readyPromise) {
+      return this.readyPromise;
+    }
+
+    const promise = this.request<void>(
+      "init",
+      undefined,
+      INIT_TIMEOUT_MS,
+    ).catch((error: unknown) => {
+      // Only reset if a newer warm-up has not replaced this one.
+      if (this.readyPromise === promise) {
+        this.readyPromise = null;
+      }
+
+      throw error;
+    });
+
+    this.readyPromise = promise;
+
+    return promise;
+  }
+
+  restart(
+    reason: Error = new Error("Python runtime was restarted."),
+  ): void {
+    const currentWorker = this.worker;
+
+    // Clear the shared references before terminating the worker.
+    // Any later request will create a fresh worker.
+    this.worker = null;
+    this.readyPromise = null;
+
+    this.rejectPending(reason);
+
+    currentWorker?.terminate();
+  }
 }
 
-type WorkerCaseResult = Omit<
-  PythonRunResult,
-  "input" | "expected"
->;
+// Used by problem pages. Every test case has a time limit.
+const testRuntime = new PythonWorkerClient();
+
+// Used only by the Playground. Isolated from the test runtime and
+// has no time limit; the person can stop a script manually.
+const playgroundRuntime = new PythonWorkerClient();
+
+/* ---------------------------------------------------------------
+   Problem test runner
+   --------------------------------------------------------------- */
+
+export function warmPythonRuntime(): Promise<void> {
+  return testRuntime.warm();
+}
+
+type WorkerCaseResult = Omit<PythonRunResult, "input" | "expected">;
 
 export async function runPython(
   code: string,
@@ -239,10 +310,10 @@ export async function runPython(
   const results: PythonRunResult[] = [];
 
   for (const testCase of testCases) {
-    await warmPythonRuntime();
+    await testRuntime.warm();
 
     try {
-      const raw = await requestWorker<WorkerCaseResult>(
+      const raw = await testRuntime.request<WorkerCaseResult>(
         "run",
         {
           code,
@@ -290,27 +361,41 @@ export async function runPython(
   };
 }
 
-export async function runPythonScript(
-  code: string,
-): Promise<PythonScriptResult> {
-  await warmPythonRuntime();
-
-  return requestWorker<PythonScriptResult>(
-    "script",
-    { code },
-    TEST_TIME_LIMIT_MS,
-  );
+export function restartPythonRuntime(): void {
+  testRuntime.restart();
 }
 
-export function restartPythonRuntime(): void {
-  const currentWorker = worker;
+/* ---------------------------------------------------------------
+   Playground (isolated, no time limit)
+   --------------------------------------------------------------- */
 
-  // Clear the shared references before terminating the worker.
-  // Any later request will create a fresh worker.
-  worker = null;
-  readyPromise = null;
+export async function runPythonScript(
+  code: string,
+  onOutput?: (chunk: PythonStreamChunk) => void,
+): Promise<PythonScriptResult> {
+  await playgroundRuntime.warm();
 
-  rejectPendingRequests("Python runtime was restarted.");
+  const result = await playgroundRuntime.request<PythonScriptResult>(
+    "script",
+    { code },
+    null,
+    onOutput,
+  );
 
-  currentWorker?.terminate();
+  // WebAssembly memory never shrinks. After a memory-heavy or crashed
+  // run, discard the worker so the browser can reclaim the memory.
+  // The next run starts a fresh interpreter.
+  if (result.recycle) {
+    playgroundRuntime.restart();
+  }
+
+  return result;
+}
+
+/**
+ * Stop the running playground script by terminating its worker.
+ * The next run starts a fresh interpreter. Problem tests are unaffected.
+ */
+export function stopPythonScript(): void {
+  playgroundRuntime.restart(new PythonStoppedError());
 }
