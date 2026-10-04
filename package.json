@@ -2,7 +2,7 @@
   "name": "dsa-with-ragu",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://ragug.github.io/dsa-with-ragu",
+  "homepage": "https://dsa-with.ragug.com/",
   "type": "module",
   "scripts": {
     "dev": "vite",
