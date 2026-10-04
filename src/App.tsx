@@ -122,14 +122,18 @@ function SiteHeader({
 }) {
   return (
     <header className="site-header">
+
       <button
         className="site-brand"
         onClick={() => onNavigate("home")}
         aria-label="DSA With Ragu home"
       >
-        <span className="brand-mark">
-          <Brain size={21} />
-        </span>
+        <img
+          className="brand-logo"
+          src={`${import.meta.env.BASE_URL}favicon.svg`}
+          alt=""
+          aria-hidden="true"
+        />
         <span>DSA With Ragu</span>
       </button>
 

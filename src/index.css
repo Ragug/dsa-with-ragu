@@ -2118,3 +2118,16 @@ a {
     transition-duration: 0.01ms !important;
   }
 }
+
+.site-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
