@@ -1,4 +1,3 @@
-
 export type PythonTestCase = {
   input: unknown[];
   expected: unknown;
@@ -66,6 +65,7 @@ export class PythonTimeoutError extends Error {
 }
 
 export const TEST_TIME_LIMIT_MS = 5_000;
+
 const INIT_TIMEOUT_MS = 60_000;
 
 let worker: Worker | null = null;
@@ -74,12 +74,27 @@ let readyPromise: Promise<void> | null = null;
 
 const pending = new Map<number, PendingRequest>();
 
-function rejectPendingRequests(message: string) {
+function rejectPendingRequests(message: string): void {
   for (const [id, request] of pending) {
     clearTimeout(request.timeout);
-    request.reject(new Error(message));
     pending.delete(id);
+    request.reject(new Error(message));
   }
+}
+
+function handleWorkerFailure(
+  instance: Worker,
+  message: string,
+): void {
+  // Ignore events from a worker that has already been replaced.
+  if (worker !== instance) return;
+
+  rejectPendingRequests(message);
+
+  instance.terminate();
+
+  worker = null;
+  readyPromise = null;
 }
 
 function createWorker(): Worker {
@@ -89,6 +104,9 @@ function createWorker(): Worker {
   );
 
   instance.onmessage = (event: MessageEvent<WorkerResponse>) => {
+    // Ignore messages from an obsolete worker.
+    if (worker !== instance) return;
+
     const message = event.data;
     const request = pending.get(message.id);
 
@@ -98,20 +116,27 @@ function createWorker(): Worker {
     pending.delete(message.id);
 
     if (message.type === "error") {
-      request.reject(new Error(message.error ?? "Python worker failed."));
-    } else {
-      request.resolve(message.payload);
+      request.reject(
+        new Error(message.error ?? "Python worker failed."),
+      );
+      return;
     }
+
+    request.resolve(message.payload);
   };
 
   instance.onerror = () => {
-    rejectPendingRequests("Python runtime stopped unexpectedly.");
-    instance.terminate();
+    handleWorkerFailure(
+      instance,
+      "Python runtime stopped unexpectedly.",
+    );
+  };
 
-    if (worker === instance) {
-      worker = null;
-      readyPromise = null;
-    }
+  instance.onmessageerror = () => {
+    handleWorkerFailure(
+      instance,
+      "Could not read the response from the Python worker.",
+    );
   };
 
   return instance;
@@ -135,9 +160,14 @@ function requestWorker<T>(
 
   return new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(() => {
+      // The request may have already completed or been rejected.
+      const request = pending.get(id);
+
+      if (!request) return;
+
       pending.delete(id);
 
-      reject(
+      request.reject(
         new PythonTimeoutError(
           type === "init"
             ? "Python runtime took too long to start."
@@ -145,8 +175,11 @@ function requestWorker<T>(
         ),
       );
 
-      // Replace the worker to interrupt an infinite loop.
-      restartPythonRuntime();
+      // Terminate the worker to interrupt an infinite loop.
+      // This also rejects any other requests using this worker.
+      if (worker === currentWorker) {
+        restartPythonRuntime();
+      }
     }, timeoutMs);
 
     pending.set(id, {
@@ -155,12 +188,29 @@ function requestWorker<T>(
       timeout,
     });
 
-    currentWorker.postMessage({ id, type, payload });
+    try {
+      currentWorker.postMessage({
+        id,
+        type,
+        payload,
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      pending.delete(id);
+
+      reject(
+        error instanceof Error
+          ? error
+          : new Error(String(error)),
+      );
+    }
   });
 }
 
 export function warmPythonRuntime(): Promise<void> {
-  if (readyPromise) return readyPromise;
+  if (readyPromise) {
+    return readyPromise;
+  }
 
   readyPromise = requestWorker<void>(
     "init",
@@ -174,7 +224,10 @@ export function warmPythonRuntime(): Promise<void> {
   return readyPromise;
 }
 
-type WorkerCaseResult = Omit<PythonRunResult, "input" | "expected">;
+type WorkerCaseResult = Omit<
+  PythonRunResult,
+  "input" | "expected"
+>;
 
 export async function runPython(
   code: string,
@@ -191,7 +244,12 @@ export async function runPython(
     try {
       const raw = await requestWorker<WorkerCaseResult>(
         "run",
-        { code, testCase, functionName, options },
+        {
+          code,
+          testCase,
+          functionName,
+          options,
+        },
         TEST_TIME_LIMIT_MS,
       );
 
@@ -201,7 +259,9 @@ export async function runPython(
         expected: testCase.expected,
       });
     } catch (error) {
-      if (!(error instanceof PythonTimeoutError)) throw error;
+      if (!(error instanceof PythonTimeoutError)) {
+        throw error;
+      }
 
       results.push({
         status: "timeout",
@@ -211,9 +271,9 @@ export async function runPython(
         actual: null,
         stdout: "",
         stderr: "",
-        error: `Time Limit Exceeded: this test case ran for more than ${
-          TEST_TIME_LIMIT_MS / 1000
-        } seconds.`,
+        error:
+          `Time Limit Exceeded: this test case ran for more than ` +
+          `${TEST_TIME_LIMIT_MS / 1000} seconds.`,
         executionTimeMs: null,
         memoryBytes: null,
         timeStats: null,
@@ -243,9 +303,14 @@ export async function runPythonScript(
 }
 
 export function restartPythonRuntime(): void {
-  rejectPendingRequests("Python runtime was restarted.");
+  const currentWorker = worker;
 
-  worker?.terminate();
+  // Clear the shared references before terminating the worker.
+  // Any later request will create a fresh worker.
   worker = null;
   readyPromise = null;
+
+  rejectPendingRequests("Python runtime was restarted.");
+
+  currentWorker?.terminate();
 }

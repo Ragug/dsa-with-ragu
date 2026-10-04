@@ -1,10 +1,10 @@
-
-import { loadPyodide,version, type PyodideInterface } from "pyodide";
+import type { PyodideInterface } from "pyodide";
 import harnessSource from "./pythonHarness.py?raw";
 import type {
   PythonTestCase,
   RunOptions,
 } from "../runtime/pythonRuntime";
+
 type WorkerRequest = {
   id: number;
   type: "init" | "run" | "script";
@@ -28,24 +28,46 @@ type PythonScriptResult = {
   stderr: string;
 };
 
+const PYODIDE_VERSION = "314.0.7";
+
+const PYODIDE_BASE_URL =
+  `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+
 let pyodidePromise: Promise<PyodideInterface> | null = null;
 
-
+/**
+ * Load Pyodide directly in the browser worker.
+ *
+ * Loading from the CDN at runtime avoids bundling the npm package's
+ * Node-compatible entry point into the Vite application.
+ */
 function getPyodide(): Promise<PyodideInterface> {
   if (!pyodidePromise) {
-    pyodidePromise = loadPyodide({
-      indexURL: `https://cdn.jsdelivr.net/pyodide/v${version}/full/`,
-    }).then((pyodide) => {
-      // Define the DSA test harness once.
+    pyodidePromise = (async () => {
+      const { loadPyodide } = await import(
+        /* @vite-ignore */
+        `${PYODIDE_BASE_URL}pyodide.mjs`
+      );
+
+      const pyodide = await loadPyodide({
+        indexURL: PYODIDE_BASE_URL,
+      });
+
+      // Define the DSA test harness once per Pyodide instance.
       pyodide.runPython(harnessSource);
+
       return pyodide;
+    })().catch((error: unknown) => {
+      // Allow a later request to retry initialization.
+      pyodidePromise = null;
+      throw error;
     });
   }
 
   return pyodidePromise;
 }
 
-function send(message: WorkerResponse) {
+function send(message: WorkerResponse): void {
   self.postMessage(message);
 }
 
@@ -55,8 +77,12 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   try {
     const pyodide = await getPyodide();
 
+    // Runtime initialization request.
     if (type === "init") {
-      send({ id, type: "ready" });
+      send({
+        id,
+        type: "ready",
+      });
       return;
     }
 
@@ -87,19 +113,27 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         send({
           id,
           type: "result",
-          payload: { stdout, stderr } satisfies PythonScriptResult,
+          payload: {
+            stdout,
+            stderr,
+          } satisfies PythonScriptResult,
         });
-      } catch (error) {
-        // Keep output printed before the exception.
-        stderr += error instanceof Error ? error.message : String(error);
+      } catch (error: unknown) {
+        // Preserve output printed before an exception.
+        stderr += error instanceof Error
+          ? error.message
+          : String(error);
 
         send({
           id,
           type: "result",
-          payload: { stdout, stderr } satisfies PythonScriptResult,
+          payload: {
+            stdout,
+            stderr,
+          } satisfies PythonScriptResult,
         });
       } finally {
-        // Restore default output handlers for subsequent DSA runs.
+        // Restore default handlers for subsequent executions.
         pyodide.setStdout({});
         pyodide.setStderr({});
       }
@@ -107,13 +141,27 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       return;
     }
 
-    // Existing DSA test-case execution.
-    if (type !== "run" || !payload.testCase || !payload.functionName) {
+    // DSA test-case execution.
+    if (
+      type !== "run" ||
+      !payload.testCase ||
+      !payload.functionName
+    ) {
       throw new Error("Invalid worker request.");
     }
 
-    const { code, testCase, functionName, options } = payload;
+    const {
+      code,
+      testCase,
+      functionName,
+      options,
+    } = payload;
+
     const runCase = pyodide.globals.get("run_case");
+
+    if (typeof runCase !== "function") {
+      throw new Error("Python test harness is not initialized.");
+    }
 
     try {
       const raw = runCase(
@@ -132,11 +180,13 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     } finally {
       runCase.destroy();
     }
-  } catch (error) {
+  } catch (error: unknown) {
     send({
       id,
       type: "error",
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error
+        ? error.message
+        : String(error),
     });
   }
 };

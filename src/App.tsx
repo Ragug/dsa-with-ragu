@@ -1,5 +1,11 @@
-
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ArrowDownUp,
   Brain,
@@ -21,9 +27,6 @@ import {
   Trash2,
 } from "lucide-react";
 
-import ProblemWorkspace from "./components/ProblemWorkspace";
-import About from "./components/About";
-import Playground from "./components/Playground";
 import { problems } from "./data/problems";
 import type { Problem } from "./types/problem";
 
@@ -34,6 +37,16 @@ import {
   saveTheme,
   type AppTheme,
 } from "./storage/progress";
+
+// Lazy-load pages and the problem workspace.
+// Their dependencies won't be needed in the initial app bundle.
+const ProblemWorkspace = lazy(
+  () => import("./components/ProblemWorkspace"),
+);
+
+const About = lazy(() => import("./components/About"));
+
+const Playground = lazy(() => import("./components/Playground"));
 
 type AppPage = "home" | "about" | "playground" | "problem";
 
@@ -69,7 +82,10 @@ function LinkedInIcon({ size = 15 }: { size?: number }) {
 }
 
 function getProblemIdFromPath(): string | null {
-  const match = window.location.pathname.match(/^\/problems\/([^/]+)\/?$/);
+  const match = window.location.pathname.match(
+    /^\/problems\/([^/]+)\/?$/,
+  );
+
   return match ? decodeURIComponent(match[1]) : null;
 }
 
@@ -120,7 +136,9 @@ function SiteHeader({
       <nav className="site-nav" aria-label="Main navigation">
         <button
           className={
-            currentPage === "home" || currentPage === "problem" ? "active" : ""
+            currentPage === "home" || currentPage === "problem"
+              ? "active"
+              : ""
           }
           onClick={() => onNavigate("home")}
         >
@@ -160,7 +178,11 @@ function SiteFooter() {
       </span>
 
       <nav className="site-footer-links" aria-label="Social links">
-        <a href="https://www.ragug.com/" target="_blank" rel="noopener noreferrer">
+        <a
+          href="https://www.ragug.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           <Globe size={15} />
           Website
         </a>
@@ -187,6 +209,18 @@ function SiteFooter() {
   );
 }
 
+function PageLoading({ label = "Loading..." }: { label?: string }) {
+  return (
+    <div
+      className="simple-page-content"
+      role="status"
+      aria-live="polite"
+    >
+      <p>{label}</p>
+    </div>
+  );
+}
+
 export default function App() {
   const [activeTopic, setActiveTopic] = useState("All Problems");
   const [search, setSearch] = useState("");
@@ -200,7 +234,11 @@ export default function App() {
   );
 
   const [theme, setTheme] = useState<AppTheme>(() => readTheme());
-  const [progressVersion, setProgressVersion] = useState(0);
+  const [, forceProgressUpdate] = useState(0);
+
+  const refreshProgress = () => {
+    forceProgressUpdate((version) => version + 1);
+  };
 
   const topics = useMemo(
     () => [
@@ -231,10 +269,9 @@ export default function App() {
     });
   }, [activeTopic, search]);
 
-  const completedCount = useMemo(
-    () => problems.filter((problem) => isProblemSolved(problem.id)).length,
-    [progressVersion],
-  );
+  const completedCount = problems.filter((problem) =>
+    isProblemSolved(problem.id),
+  ).length;
 
   const navigateToPage = useCallback((page: AppPage) => {
     const paths: Record<AppPage, string> = {
@@ -294,14 +331,13 @@ export default function App() {
     }
 
     window.addEventListener("popstate", syncFromUrl);
+
     return () => window.removeEventListener("popstate", syncFromUrl);
   }, []);
 
-  useEffect(() => {
-    void import("./runtime/pythonRuntime")
-      .then(({ warmPythonRuntime }) => warmPythonRuntime())
-      .catch(() => {});
-  }, []);
+  // Intentionally do not warm up Pyodide here.
+  // It initializes when ProblemWorkspace mounts or the user runs code
+  // in Playground.
 
   useEffect(() => {
     saveTheme(theme);
@@ -319,6 +355,7 @@ export default function App() {
     if (theme !== "system") return;
 
     media.addEventListener("change", update);
+
     return () => media.removeEventListener("change", update);
   }, [theme]);
 
@@ -334,42 +371,47 @@ export default function App() {
     if (!confirmed) return;
 
     resetAllProgress();
-    setProgressVersion((version) => version + 1);
+    refreshProgress();
   }
 
   if (currentPage === "problem" && selectedProblem) {
     return (
       <div className="app-shell site-layout">
-        <SiteHeader currentPage={currentPage} onNavigate={navigateToPage} />
-
-        <ProblemWorkspace
-          key={selectedProblem.id}
-          problem={selectedProblem}
-          previousProblem={
-            selectedIndex > 0 ? problems[selectedIndex - 1] : undefined
-          }
-          nextProblem={
-            selectedIndex >= 0 && selectedIndex < problems.length - 1
-              ? problems[selectedIndex + 1]
-              : undefined
-          }
-          onBack={goToList}
-          onPrevious={() => {
-            if (selectedIndex > 0) {
-              navigateToProblem(problems[selectedIndex - 1]);
-            }
-          }}
-          onNext={() => {
-            if (selectedIndex >= 0 && selectedIndex < problems.length - 1) {
-              navigateToProblem(problems[selectedIndex + 1]);
-            }
-          }}
-          theme={theme}
-          onThemeChange={setTheme}
-          onProgressChange={() =>
-            setProgressVersion((version) => version + 1)
-          }
+        <SiteHeader
+          currentPage={currentPage}
+          onNavigate={navigateToPage}
         />
+
+        <Suspense fallback={<PageLoading label="Loading problem workspace..." />}>
+          <ProblemWorkspace
+            key={selectedProblem.id}
+            problem={selectedProblem}
+            previousProblem={
+              selectedIndex > 0 ? problems[selectedIndex - 1] : undefined
+            }
+            nextProblem={
+              selectedIndex >= 0 && selectedIndex < problems.length - 1
+                ? problems[selectedIndex + 1]
+                : undefined
+            }
+            onBack={goToList}
+            onPrevious={() => {
+              if (selectedIndex > 0) {
+                navigateToProblem(problems[selectedIndex - 1]);
+              }
+            }}
+            onNext={() => {
+              if (selectedIndex >= 0 && selectedIndex < problems.length - 1) {
+                navigateToProblem(problems[selectedIndex + 1]);
+              }
+            }}
+            theme={theme}
+            onThemeChange={setTheme}
+            onProgressChange={() =>
+              refreshProgress()
+            }
+          />
+        </Suspense>
 
         <SiteFooter />
       </div>
@@ -379,10 +421,17 @@ export default function App() {
   if (currentPage === "about") {
     return (
       <div className="app-shell site-layout">
-        <SiteHeader currentPage={currentPage} onNavigate={navigateToPage} />
-        <main className="simple-page-content">
-          <About />
-        </main>
+        <SiteHeader
+          currentPage={currentPage}
+          onNavigate={navigateToPage}
+        />
+
+        <Suspense fallback={<PageLoading label="Loading About..." />}>
+          <main className="simple-page-content">
+            <About />
+          </main>
+        </Suspense>
+
         <SiteFooter />
       </div>
     );
@@ -391,10 +440,17 @@ export default function App() {
   if (currentPage === "playground") {
     return (
       <div className="app-shell site-layout">
-        <SiteHeader currentPage={currentPage} onNavigate={navigateToPage} />
-        <main className="simple-page-content">
-          <Playground />
-        </main>
+        <SiteHeader
+          currentPage={currentPage}
+          onNavigate={navigateToPage}
+        />
+
+        <Suspense fallback={<PageLoading label="Loading playground..." />}>
+          <main className="simple-page-content">
+            <Playground />
+          </main>
+        </Suspense>
+
         <SiteFooter />
       </div>
     );
@@ -406,7 +462,10 @@ export default function App() {
 
   return (
     <div className="app-shell app-home site-layout">
-      <SiteHeader currentPage={currentPage} onNavigate={navigateToPage} />
+      <SiteHeader
+        currentPage={currentPage}
+        onNavigate={navigateToPage}
+      />
 
       <div className="home-layout">
         <aside className="sidebar">
@@ -429,6 +488,7 @@ export default function App() {
                   onClick={() => {
                     setActiveTopic(topic);
                     setCurrentPage("home");
+
                     if (window.location.pathname !== "/") {
                       window.history.pushState({}, "", "/");
                     }
@@ -445,6 +505,7 @@ export default function App() {
           <div className="sidebar-bottom">
             <div className="theme-control">
               <label htmlFor="home-theme">Appearance</label>
+
               <select
                 id="home-theme"
                 value={theme}
@@ -474,6 +535,7 @@ export default function App() {
               <div className="header-progress-icon">
                 <CheckCircle2 size={20} />
               </div>
+
               <div>
                 <strong>
                   {completedCount} / {problems.length}
@@ -517,6 +579,7 @@ export default function App() {
                     ? "All problems"
                     : activeTopic}
                 </h2>
+
                 <p>
                   Showing {filteredProblems.length} problems · {solvedCount}{" "}
                   solved in this view
@@ -526,6 +589,7 @@ export default function App() {
               <div className="problem-list-tools">
                 <label className="problem-search">
                   <Search size={17} />
+
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
