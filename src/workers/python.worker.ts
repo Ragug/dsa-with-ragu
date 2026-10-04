@@ -1,11 +1,10 @@
 
-import { loadPyodide, type PyodideInterface } from "pyodide";
+import { loadPyodide,version, type PyodideInterface } from "pyodide";
 import harnessSource from "./pythonHarness.py?raw";
 import type {
   PythonTestCase,
   RunOptions,
 } from "../runtime/pythonRuntime";
-
 type WorkerRequest = {
   id: number;
   type: "init" | "run" | "script";
@@ -31,9 +30,12 @@ type PythonScriptResult = {
 
 let pyodidePromise: Promise<PyodideInterface> | null = null;
 
+
 function getPyodide(): Promise<PyodideInterface> {
   if (!pyodidePromise) {
-    pyodidePromise = loadPyodide().then((pyodide) => {
+    pyodidePromise = loadPyodide({
+      indexURL: `https://cdn.jsdelivr.net/pyodide/v${version}/full/`,
+    }).then((pyodide) => {
       // Define the DSA test harness once.
       pyodide.runPython(harnessSource);
       return pyodide;
