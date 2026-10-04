@@ -2,6 +2,8 @@
 
 **My own DSA practice platform. My rules, my style.**
 
+🚀 **[Try DSA With Ragu →](https://dsa-with.ragug.com/)**
+
 Why wait for the perfect platform when I can build one for myself? 😄
 
 I enjoy practicing Data Structures and Algorithms (DSA), but I wanted a place where I could practice in my own style. So, I started building **DSA With Ragu** — basically, my own version of LeetCode or HackerRank, LOL.
@@ -14,7 +16,7 @@ This project is currently an **early-stage prototype**. It started as a personal
 
 * **DSA problem practice** — Practice problems organized by topics.
 * **Python playground** — Write and execute Python code without creating a problem submission.
-* **In-browser Python execution** — Run Python using Pyodide.
+* **In-browser Python execution** — Run Python using Pyodide and WebAssembly.
 * **Code editor** — Syntax highlighting, line numbers, code folding, and autocomplete.
 * **Run code quickly** — Execute your code and view the output directly in the playground.
 * **Solution tracking** — Keep track of your problem-solving progress.
@@ -29,16 +31,26 @@ This project is currently an **early-stage prototype**. It started as a personal
 * **React**
 * **TypeScript**
 * **Vite**
-* **CodeMirror 6**
-* **Pyodide** — Run Python in the browser
+* **CodeMirror 6** — Code editor
+* **Pyodide** — Run Python in the browser using WebAssembly
 * **Lucide React** — Icons
 * **CSS** — Styling and responsive layouts
 
-## 🚀 Run Locally
+## 🚀 Try It Online
+
+You don't need to install anything to try the platform.
+
+👉 **https://dsa-with.ragug.com/**
+
+Open the website, choose a problem, write your Python solution, and run it directly in your browser. You can also use the Python Playground to experiment with your own code.
+
+*Note: The first Python execution may take longer while the runtime assets are downloaded. A working internet connection is required to load the Pyodide runtime from the CDN.*
+
+## 💻 Run Locally
 
 ### Prerequisites
 
-* Node.js
+* Node.js (a version compatible with the project's Vite version)
 * npm
 
 ### Installation
@@ -70,7 +82,7 @@ Open the local URL printed by Vite in your terminal.
 npm run build
 ```
 
-To preview the production build locally:
+Preview the production build locally:
 
 ```bash
 npm run preview
@@ -80,7 +92,7 @@ npm run preview
 
 One thing I want to share about this project is **how I use AI during development**.
 
-I didn't use Codex, Claude Code, or an AI coding agent that directly modifies my repository. My workflow is much simpler: I use ChatGPT through the website's chat window.
+I don't use Codex, Claude Code, or an AI coding agent that directly modifies my repository. My workflow is much simpler: I use ChatGPT through the website's chat window.
 
 I'm not particularly experienced with React, JavaScript, or UI development, so I use AI to help me implement things outside my comfort zone.
 
@@ -122,6 +134,8 @@ Have an idea for the platform, a feature suggestion, or a different way to appro
 
 I'd love to hear from you.
 
+* **Website:** [Try DSA With Ragu](https://dsa-with.ragug.com/)
+* **GitHub:** [View the source code](https://github.com/ragug/dsa-with-ragu)
 * **LinkedIn:** [Connect with me](https://www.linkedin.com/in/ragug/)
 
 Feel free to reach out with suggestions or ideas.
@@ -137,3 +151,5 @@ If I decide to open-source the project in the future, I'll add an appropriate li
 ---
 
 Built for my own DSA practice, with Python, curiosity, and a little help from ChatGPT. 🐍
+
+**[Start practicing →](https://dsa-with.ragug.com/)**
