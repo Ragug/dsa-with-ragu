@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { PythonRunResult } from "../runtime/pythonRuntime";
-import { formatMemory, formatMs, toJson } from "../utils/format";
+import { formatMemory, formatMs, previewJson } from "../utils/format";
 
 type Props = {
   result: PythonRunResult;
@@ -24,14 +24,14 @@ export default function TestCaseDetail({ result, inputNames }: Props) {
     <div className="ws-detail">
       {result.input.map((value, index) => (
         <Field key={index} label={inputNames?.[index] ?? `arg${index + 1}`}>
-          {toJson(value)}
+          {previewJson(value)}
         </Field>
       ))}
 
       {result.status !== "timeout" && (
-        <Field label="Output">{toJson(result.actual)}</Field>
+        <Field label="Output">{previewJson(result.actual)}</Field>
       )}
-      <Field label="Expected">{toJson(result.expected)}</Field>
+      <Field label="Expected">{previewJson(result.expected)}</Field>
 
       <div className="ws-metrics">
         <div className="ws-metric">

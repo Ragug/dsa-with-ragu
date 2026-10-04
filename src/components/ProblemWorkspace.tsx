@@ -16,6 +16,7 @@ import {
 import type { Problem } from "../types/problem";
 import CodeEditor from "./CodeEditor";
 import TestCaseDetail from "./TestCaseDetail";
+import { assembleCode, buildRunOptions } from "../utils/problemRuntime";
 import {
   getSavedCode,
   isProblemSolved,
@@ -41,6 +42,7 @@ import {
   toJson,
 } from "../utils/format";
 import "../styles/workspace.css";
+import "../styles/workspace-extras.css";
 
 type Props = {
   problem: Problem;
@@ -156,13 +158,10 @@ export default function ProblemWorkspace({
 
     try {
       const response = await runPython(
-        code,
+        assembleCode(problem, code),
         cases,
         problem.functionName,
-        {
-          ignoreOrder: problem.ignoreOrder,
-          precise: precise && ADVANCED_METRICS_UNLOCKED,
-        },
+        buildRunOptions(problem, precise && ADVANCED_METRICS_UNLOCKED),
         (done, total) => setProgress({ done, total }),
       );
 
@@ -379,7 +378,17 @@ export default function ProblemWorkspace({
   const editorPanel = (
     <section className="ws-card">
       <div className="ws-card-header">
-        <h2>Code</h2>
+        <h2>
+          Code
+          {(problem.prelude || problem.epilogue) && (
+            <span
+              className="ws-badge"
+              title="The grey lines are part of the problem. Only the white lines can be edited."
+            >
+              <Lock size={10} /> Grey lines are read-only
+            </span>
+          )}
+        </h2>
 
         <div className="ws-header-actions">
           <select
@@ -420,6 +429,8 @@ export default function ProblemWorkspace({
           theme={theme}
           onRun={() => void execute("run")}
           onSubmit={() => void execute("submit")}
+          lockedPrefix={problem.prelude}
+          lockedSuffix={problem.epilogue}
         />
       </div>
 

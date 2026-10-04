@@ -679,18 +679,26 @@ export const problems: Problem[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // LINKED-LIST-STYLE EXERCISES
-  // These use Python lists because that is the current platform interface.
+  // LINKED LISTS (real node objects)
+  //
+  // The test data is JSON, but the function receives real Python nodes:
+  //  - LeetCode style   : ListNode is added by the runtime (shown as a comment).
+  //  - HackerRank style : the node class is locked code inside the editor.
+  // A cyclic list is written as { values: [...], pos: p }: the tail node
+  // connects back to node p (-1 means no cycle).
   // ---------------------------------------------------------------------------
   {
-    id: "reverse-linked-list",
+    id: "reverse-singly-linked-list",
     title: "Reverse Linked List",
     topic: "Linked List",
     difficulty: "Easy",
     functionName: "reverse_list",
     inputNames: ["head"],
+    paramKinds: ["linked_list"],
+    returnKind: "linked_list",
+    listNode: { cls: "SinglyLinkedListNode", value: "data", next: "next" },
     description:
-      "For this browser exercise, a linked list is represented as a Python list. Return its values in reverse order. Try an iterative solution.",
+      "Reverse a singly linked list and return the new head.\nThe function receives the head node (a SinglyLinkedListNode, or None for an empty list). Test inputs are written as plain lists, for example [1, 2, 3].\nThe grey code is part of the problem and cannot be edited; write your solution in the white part.\nThe large test has 100000 nodes, so a recursive solution will hit Python's recursion limit.",
     examples: [
       { input: [[1, 2, 3, 4, 5]], expected: [5, 4, 3, 2, 1] },
       { input: [[1, 2]], expected: [2, 1] },
@@ -700,52 +708,179 @@ export const problems: Problem[] = [
       { input: [[1, 2]], expected: [2, 1] },
       { input: [[1]], expected: [1] },
       { input: [[]], expected: [] },
-      { input: [[1, 2, 3]], expected: [3, 2, 1] },
-      { input: [range(5000)], expected: reversedRange(5000).map((n) => n - 1) },
+      { input: [[5, -3, 5, 0]], expected: [0, 5, -3, 5] },
+      { input: [range(100000)], expected: range(100000).reverse() },
     ],
     constraints: [
-      "0 <= head.length <= 5000",
-      "For this exercise, the input and output are Python lists.",
-      "Expected time: O(n); extra space: O(1) for in-place reversal or O(n) for a copy.",
+      "0 <= number of nodes <= 100000",
+      "-10^9 <= node.data <= 10^9",
+      "Expected time: O(n); extra space: O(1).",
     ],
-    starterCode: "def reverse_list(head):\n    # Return the values in reverse order\n    pass",
+    prelude: `#!/bin/python3
+
+import math
+import os
+import random
+import re
+import sys
+
+class SinglyLinkedListNode:
+    def __init__(self, node_data):
+        self.data = node_data
+        self.next = None
+
+class SinglyLinkedList:
+    def __init__(self):
+        self.head = None
+
+#
+# Complete the 'reverse_list' function below.
+#
+# The function is expected to return an INTEGER_SINGLY_LINKED_LIST.
+# The function accepts INTEGER_SINGLY_LINKED_LIST head as parameter.
+#
+# For your reference:
+#
+# SinglyLinkedListNode:
+#     int data
+#     SinglyLinkedListNode next
+#
+
+`,
+    starterCode: "def reverse_list(head):\n    # Write your code here\n    pass",
+    epilogue:
+      "\n\n# The platform builds the list, calls reverse_list(head)\n# and compares the list you return.\n",
   },
   {
-    id: "find-middle",
+    id: "floyd-cycle-detection",
+    title: "Floyd Cycle Detection",
+    topic: "Linked List",
+    difficulty: "Easy",
+    functionName: "has_cycle",
+    inputNames: ["head"],
+    paramKinds: ["linked_list"],
+    description:
+      "Return True if the linked list has a cycle (some node can be reached again by following next pointers), otherwise False.\nThe function receives only the head node. In the tests a list with a cycle is written as {values, pos}: the tail's next pointer connects back to the node at index pos. pos = -1 means there is no cycle.\nIf your code walks the list without detecting the cycle it will never stop, and the test ends with Time Limit Exceeded.",
+    examples: [
+      { input: [{ values: [3, 2, 0, -4], pos: 1 }], expected: true },
+      { input: [{ values: [1, 2], pos: -1 }], expected: false },
+    ],
+    tests: [
+      { input: [{ values: [3, 2, 0, -4], pos: 1 }], expected: true },
+      { input: [{ values: [1, 2], pos: 0 }], expected: true },
+      { input: [{ values: [1, 2], pos: -1 }], expected: false },
+      { input: [{ values: [1], pos: 0 }], expected: true },
+      { input: [{ values: [1], pos: -1 }], expected: false },
+      { input: [{ values: [], pos: -1 }], expected: false },
+      { input: [{ values: range(100000), pos: 0 }], expected: true },
+      { input: [{ values: range(100000), pos: 99999 }], expected: true },
+      { input: [{ values: range(100000), pos: 54321 }], expected: true },
+      { input: [{ values: range(100000), pos: -1 }], expected: false },
+    ],
+    constraints: [
+      "0 <= number of nodes <= 100000",
+      "pos is -1 or a valid index in the list.",
+      "Expected time: O(n); extra space: O(1) with the slow/fast pointer method.",
+    ],
+    starterCode: `# Definition for singly-linked list.
+# class ListNode:
+#     def __init__(self, val=0, next=None):
+#         self.val = val
+#         self.next = next
+
+def has_cycle(head: Optional[ListNode]) -> bool:
+    # Write your solution here
+    pass`,
+  },
+  {
+    id: "find-cycle-start",
+    title: "Find Cycle Start",
+    topic: "Linked List",
+    difficulty: "Medium",
+    functionName: "detect_cycle",
+    inputNames: ["head"],
+    paramKinds: ["linked_list"],
+    returnKind: "list_node_index",
+    description:
+      "Return the node where the cycle begins, or None if the list has no cycle.\nThe function receives only the head node. In the tests a list with a cycle is written as {values, pos}: the tail's next pointer connects back to the node at index pos. pos = -1 means there is no cycle.\nThe answer is checked by position: returning the node at index pos is correct, and returning None means -1.\nHint: after slow and fast meet, restart one pointer from the head and move both one step at a time.",
+    examples: [
+      { input: [{ values: [3, 2, 0, -4], pos: 1 }], expected: 1 },
+      { input: [{ values: [1, 2], pos: -1 }], expected: -1 },
+    ],
+    tests: [
+      { input: [{ values: [3, 2, 0, -4], pos: 1 }], expected: 1 },
+      { input: [{ values: [1, 2], pos: 0 }], expected: 0 },
+      { input: [{ values: [1, 2], pos: -1 }], expected: -1 },
+      { input: [{ values: [1], pos: 0 }], expected: 0 },
+      { input: [{ values: [], pos: -1 }], expected: -1 },
+      { input: [{ values: range(100000), pos: 0 }], expected: 0 },
+      { input: [{ values: range(100000), pos: 99999 }], expected: 99999 },
+      { input: [{ values: range(100000), pos: 54321 }], expected: 54321 },
+      { input: [{ values: range(100000), pos: -1 }], expected: -1 },
+    ],
+    constraints: [
+      "0 <= number of nodes <= 100000",
+      "pos is -1 or a valid index in the list.",
+      "Expected time: O(n); extra space: O(1).",
+    ],
+    starterCode: `# Definition for singly-linked list.
+# class ListNode:
+#     def __init__(self, val=0, next=None):
+#         self.val = val
+#         self.next = next
+
+def detect_cycle(head: Optional[ListNode]) -> Optional[ListNode]:
+    # Write your solution here
+    pass`,
+  },
+  {
+    id: "middle-of-linked-list",
     title: "Find Middle of List",
     topic: "Linked List",
     difficulty: "Easy",
-    functionName: "middle_value",
+    functionName: "middle_node",
     inputNames: ["head"],
+    paramKinds: ["linked_list"],
+    returnKind: "linked_list",
     description:
-      "Given a non-empty Python list representing linked-list values, return the middle value. If there are two middle values, return the second one.",
+      "Return the middle node of the linked list. If there are two middle nodes, return the second one.\nThe function receives the head node. Test inputs and outputs are written as plain lists: the expected output is the list that starts at the middle node, for example [1, 2, 3, 4, 5] gives [3, 4, 5].",
     examples: [
-      { input: [[1, 2, 3, 4, 5]], expected: 3 },
-      { input: [[1, 2, 3, 4]], expected: 3 },
+      { input: [[1, 2, 3, 4, 5]], expected: [3, 4, 5] },
+      { input: [[1, 2, 3, 4, 5, 6]], expected: [4, 5, 6] },
     ],
     tests: [
-      { input: [[1, 2, 3, 4, 5]], expected: 3 },
-      { input: [[1, 2, 3, 4]], expected: 3 },
-      { input: [[9]], expected: 9 },
-      { input: [[1, 2]], expected: 2 },
-      { input: [range(10000)], expected: 5000 },
+      { input: [[1, 2, 3, 4, 5]], expected: [3, 4, 5] },
+      { input: [[1, 2, 3, 4, 5, 6]], expected: [4, 5, 6] },
+      { input: [[9]], expected: [9] },
+      { input: [[1, 2]], expected: [2] },
+      { input: [range(100000)], expected: range(50000, 50000) },
+      { input: [range(99999)], expected: range(50000, 49999) },
     ],
     constraints: [
-      "1 <= head.length <= 10000",
-      "Return the second middle for an even-length list.",
-      "Expected time: O(n); extra space: O(1).",
+      "1 <= number of nodes <= 100000",
+      "Expected time: O(n) in a single pass; extra space: O(1).",
     ],
-    starterCode: "def middle_value(head):\n    # Return the middle value (second middle if even)\n    pass",
+    starterCode: `# Definition for singly-linked list.
+# class ListNode:
+#     def __init__(self, val=0, next=None):
+#         self.val = val
+#         self.next = next
+
+def middle_node(head: Optional[ListNode]) -> Optional[ListNode]:
+    # Write your solution here
+    pass`,
   },
   {
-    id: "merge-sorted-lists",
+    id: "merge-two-sorted-lists",
     title: "Merge Sorted Lists",
     topic: "Linked List",
     difficulty: "Easy",
-    functionName: "merge_sorted_lists",
+    functionName: "merge_two_lists",
     inputNames: ["list1", "list2"],
+    paramKinds: ["linked_list", "linked_list"],
+    returnKind: "linked_list",
     description:
-      "Given two sorted lists, return a single sorted list containing all values from both lists.",
+      "Merge two sorted linked lists into one sorted linked list and return its head. Reuse the existing nodes if you can.\nThe function receives the head node of each list (a ListNode, or None for an empty list). Test inputs and outputs are written as plain lists.",
     examples: [
       { input: [[1, 2, 4], [1, 3, 4]], expected: [1, 1, 2, 3, 4, 4] },
       { input: [[], [0]], expected: [0] },
@@ -755,14 +890,28 @@ export const problems: Problem[] = [
       { input: [[], [0]], expected: [0] },
       { input: [[], []], expected: [] },
       { input: [[-3, 0, 9], [-2, 1, 8]], expected: [-3, -2, 0, 1, 8, 9] },
-      { input: [range(5000, 0), range(5000, 0)], expected: range(5000, 0).concat(range(5000, 0)).sort((a, b) => a - b) },
+      { input: [[5], [1, 2, 3]], expected: [1, 2, 3, 5] },
+      {
+        input: [range(50000, 0), range(50000, 0)],
+        expected: range(50000, 0)
+          .concat(range(50000, 0))
+          .sort((a, b) => a - b),
+      },
     ],
     constraints: [
-      "0 <= list1.length, list2.length <= 5000",
-      "Both input lists are sorted in ascending order.",
-      "Expected time: O(n + m); extra space: O(n + m) for a new list.",
+      "0 <= length of each list <= 50000",
+      "Both lists are sorted in ascending order.",
+      "Expected time: O(n + m); extra space: O(1) if you relink the nodes.",
     ],
-    starterCode: "def merge_sorted_lists(list1, list2):\n    # Return one sorted list\n    pass",
+    starterCode: `# Definition for singly-linked list.
+# class ListNode:
+#     def __init__(self, val=0, next=None):
+#         self.val = val
+#         self.next = next
+
+def merge_two_lists(list1: Optional[ListNode], list2: Optional[ListNode]) -> Optional[ListNode]:
+    # Write your solution here
+    pass`,
   },
   {
     id: "fast-slow-pointer",
@@ -983,7 +1132,7 @@ export const problems: Problem[] = [
       { input: [[1], 1], expected: [1] },
       { input: [[9, 8, 7, 6], 2], expected: [9, 8, 7] },
       { input: [[4, 4, 4, 4], 2], expected: [4, 4, 4] },
-      { input: [range(10000), 100], expected: range(10000 - 100 + 1, 99).map((n) => n + 99) },
+      { input: [range(10000), 100], expected: range(10000 - 100 + 1).map((n) => n + 99) },
     ],
     constraints: [
       "1 <= k <= nums.length <= 10000",

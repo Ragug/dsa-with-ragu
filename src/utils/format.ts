@@ -7,12 +7,29 @@ export function toJson(value: unknown): string {
   return JSON.stringify(value) ?? String(value);
 }
 
+const PREVIEW_CHARS = 300;
+const PREVIEW_ITEMS = 8;
+
+/** JSON for display. Long values are shortened so huge inputs stay readable. */
+export function previewJson(value: unknown): string {
+  const full = toJson(value);
+
+  if (full.length <= PREVIEW_CHARS) return full;
+
+  if (Array.isArray(value)) {
+    const head = value.slice(0, PREVIEW_ITEMS).map(toJson).join(", ");
+    return `[${head}, … ${value.length - PREVIEW_ITEMS} more] (${value.length} items)`;
+  }
+
+  return `${full.slice(0, PREVIEW_CHARS)}… (${full.length} characters)`;
+}
+
 export function formatInput(
   names: string[] | undefined,
   input: unknown[],
 ): string {
   return input
-    .map((value, index) => `${names?.[index] ?? `arg${index + 1}`} = ${toJson(value)}`)
+    .map((value, index) => `${names?.[index] ?? `arg${index + 1}`} = ${previewJson(value)}`)
     .join(", ");
 }
 

@@ -6,6 +6,13 @@ export type PythonTestCase = {
 export type RunOptions = {
   ignoreOrder?: boolean;
   precise?: boolean;
+  /** How each argument is turned into a Python value (default: plain JSON). */
+  paramKinds?: Array<"json" | "linked_list" | "tree">;
+  /** How the returned value is turned back into JSON (default: plain JSON). */
+  returnKind?: "json" | "linked_list" | "tree" | "list_node_index";
+  /** Node classes. Default: LeetCode's `ListNode` / `TreeNode`. */
+  listNode?: { cls: string; value: string; next: string };
+  treeNode?: { cls: string; value: string; left: string; right: string };
 };
 
 export type TestStatus = "passed" | "failed" | "error" | "timeout";
@@ -84,6 +91,13 @@ export class PythonStoppedError extends Error {
 }
 
 export const TEST_TIME_LIMIT_MS = 5_000;
+
+/**
+ * WebAssembly has a small stack. If Python overflows it, Pyodide reports a
+ * fatal error and that interpreter can never be used again.
+ */
+const STACK_OVERFLOW_PATTERN =
+  /Maximum call stack size exceeded|suffered a fatal error/i;
 
 const INIT_TIMEOUT_MS = 60_000;
 
@@ -330,6 +344,34 @@ export async function runPython(
         expected: testCase.expected,
       });
     } catch (error) {
+      if (
+        error instanceof Error &&
+        STACK_OVERFLOW_PATTERN.test(error.message)
+      ) {
+        // Fail only this test case, and replace the broken interpreter.
+        testRuntime.restart();
+
+        results.push({
+          status: "error",
+          passed: false,
+          input: testCase.input,
+          expected: testCase.expected,
+          actual: null,
+          stdout: "",
+          stderr: "",
+          error:
+            "The Python runtime ran out of stack space and was restarted. " +
+            "This usually means a recursion went too deep, or a very long " +
+            "chain of objects was released at once.",
+          executionTimeMs: null,
+          memoryBytes: null,
+          timeStats: null,
+        });
+
+        onProgress?.(results.length, testCases.length);
+        continue;
+      }
+
       if (!(error instanceof PythonTimeoutError)) {
         throw error;
       }

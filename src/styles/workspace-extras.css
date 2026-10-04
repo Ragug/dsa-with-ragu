@@ -1,0 +1,10 @@
+/* Additions for read-only (locked) editor lines and multi-line descriptions. */
+
+.ws-editor .cm-editor .cm-line.ws-locked-line {
+  background: var(--surface-muted);
+  opacity: 0.72;
+}
+
+.ws-paragraph {
+  white-space: pre-line;
+}

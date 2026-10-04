@@ -1,7 +1,17 @@
 
 import { useEffect, useRef, useState } from "react";
-import { Compartment, EditorState, Prec } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers } from "@codemirror/view";
+import {
+  Compartment,
+  EditorState,
+  Prec,
+  RangeSetBuilder,
+} from "@codemirror/state";
+import {
+  Decoration,
+  EditorView,
+  keymap,
+  lineNumbers,
+} from "@codemirror/view";
 import {
   defaultKeymap,
   history,
@@ -18,12 +28,19 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import type { AppTheme } from "../storage/progress";
 
 type CodeEditorProps = {
+  /** The editable part of the code. */
   value: string;
   onChange: (value: string) => void;
   theme: AppTheme;
   onRun?: () => void;
   onSubmit?: () => void;
+  /** Read-only code shown above the editable part (HackerRank style). */
+  lockedPrefix?: string;
+  /** Read-only code shown below the editable part. */
+  lockedSuffix?: string;
 };
+
+const lockedLine = Decoration.line({ class: "ws-locked-line" });
 
 function useResolvedDark(theme: AppTheme): boolean {
   const [systemDark, setSystemDark] = useState(
@@ -48,11 +65,20 @@ export default function CodeEditor({
   theme,
   onRun,
   onSubmit,
+  lockedPrefix = "",
+  lockedSuffix = "",
 }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
 
   const [themeCompartment] = useState(() => new Compartment());
+
+  // The locked parts never change while an editor is open (the workspace is
+  // re-created for every problem), so they are read once.
+  const lockRef = useRef({
+    prefix: lockedPrefix,
+    suffix: lockedSuffix,
+  });
 
   const onChangeRef = useRef(onChange);
   const onRunRef = useRef(onRun);
@@ -72,8 +98,12 @@ export default function CodeEditor({
     const host = hostRef.current;
     if (!host) return;
 
+    const { prefix, suffix } = lockRef.current;
+    const locked = prefix.length > 0 || suffix.length > 0;
+    const editableEnd = (length: number) => length - suffix.length;
+
     const state = EditorState.create({
-      doc: value,
+      doc: prefix + value + suffix,
       extensions: [
         lineNumbers(),
         history(),
@@ -82,6 +112,58 @@ export default function CodeEditor({
         // Use four spaces for each indentation level.
         indentUnit.of("    "),
         EditorState.tabSize.of(4),
+
+        // Only the editable range may change. Everything else is read-only.
+        ...(locked
+          ? [
+              EditorState.transactionFilter.of((transaction) => {
+                if (!transaction.docChanged) return transaction;
+
+                const end = editableEnd(transaction.startState.doc.length);
+                let allowed = true;
+
+                transaction.changes.iterChangedRanges((fromA, toA) => {
+                  if (fromA < prefix.length || toA > end) allowed = false;
+                });
+
+                return allowed ? transaction : [];
+              }),
+
+              // Grey background for the locked lines.
+              EditorView.decorations.compute(["doc"], (state) => {
+                const end = editableEnd(state.doc.length);
+                const builder = new RangeSetBuilder<Decoration>();
+
+                for (let n = 1; n <= state.doc.lines; n++) {
+                  const line = state.doc.line(n);
+
+                  if (line.from < prefix.length || line.from > end) {
+                    builder.add(line.from, line.from, lockedLine);
+                  }
+                }
+
+                return builder.finish();
+              }),
+
+              // Ctrl+A selects only the part you may edit.
+              Prec.highest(
+                keymap.of([
+                  {
+                    key: "Mod-a",
+                    run: (view) => {
+                      view.dispatch({
+                        selection: {
+                          anchor: prefix.length,
+                          head: editableEnd(view.state.doc.length),
+                        },
+                      });
+                      return true;
+                    },
+                  },
+                ]),
+              ),
+            ]
+          : []),
 
         Prec.highest(
           keymap.of([
@@ -116,7 +198,12 @@ export default function CodeEditor({
 
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
-            onChangeRef.current(update.state.doc.toString());
+            onChangeRef.current(
+              update.state.doc.sliceString(
+                prefix.length,
+                editableEnd(update.state.doc.length),
+              ),
+            );
           }
         }),
 
@@ -174,15 +261,13 @@ export default function CodeEditor({
     const view = viewRef.current;
     if (!view) return;
 
-    const currentValue = view.state.doc.toString();
+    const { prefix, suffix } = lockRef.current;
+    const end = view.state.doc.length - suffix.length;
+    const currentValue = view.state.doc.sliceString(prefix.length, end);
 
     if (currentValue !== value) {
       view.dispatch({
-        changes: {
-          from: 0,
-          to: view.state.doc.length,
-          insert: value,
-        },
+        changes: { from: prefix.length, to: end, insert: value },
       });
     }
   }, [value]);
